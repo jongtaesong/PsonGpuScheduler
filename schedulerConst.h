@@ -1,0 +1,31 @@
+/*
+ * schedulerConst.h
+ *
+ *  Created on: Jun 22, 2018
+ *      Author: jsong
+ */
+
+#ifndef SCHEDULERCONST_H_
+#define SCHEDULERCONST_H_
+
+
+
+//#define NUM_SWITCH_SIZE 400
+//#define NUM_SCALE_FACTOR 2
+//#define NUM_BITS_PER_VOQ_INFO 4
+//#define NUM_REQ_PER_UINT32 8
+//#define NUM_RR_SEQ_SIZE (NUM_SWITCH_SIZE*NUM_SCALE_FACTOR)
+//#define NUM_REQ_SIZE_UINT32 (NUM_SWITCH_SIZE*NUM_BITS_PER_VOQ_INFO/32)
+
+
+//#define NUM_ITERATIONS 3
+//#define NUM_SWITCH_SIZE_HALF 2
+
+#define NUM_VOQ_BUFFER_SIZE 100
+#define MAX_PACKET_BUFF_SIZE 1000
+
+#define MAX_NUM_SWITCH_SIZE 360
+
+
+
+#endif /* SCHEDULERCONST_H_ */
