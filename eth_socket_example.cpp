@@ -26,7 +26,7 @@
 
 #define BUF_SIZE (ETH_FRAME_LEN)
 
-// Add more line for testing
+// Add more line for GITHUB
 static char broadcast_addr[ETH_ALEN] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
 
 static void
