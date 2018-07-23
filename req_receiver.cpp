@@ -1,4 +1,7 @@
 #include "req_receiver.h"
+#include "packets.h"
+
+using namespace scheduler_packets;
 
 void receive_req(int _switch_size) {
         int _num_bits_per_voq = 4;
@@ -21,8 +24,9 @@ void receive_req(int _switch_size) {
 	uint32_t *host_voqs_all[90];
 
 	for (int i=0; i<90; i++) {
-		host_voqs_all[i] = (uint32_t)malloc(_host_voqs_size);
+		host_voqs_all[i] = (uint32_t*)malloc(_host_voqs_size);
 	}
+
 /*
 	// when wanting to bind a specific NIC I/F to the socket
 
@@ -55,33 +59,65 @@ void receive_req(int _switch_size) {
                         else {
                                 //TODO: need to filter hosts by MAC address
 
-                                printf("receiving packet...\n");
 
 #define TOTAL_VOQ_BYTES 180 
                        
-#define OFFSET_TS_ID 18
-#define OFFSET_D_VOQ 22
-
 #define NUM_OF_FRAME_TO_START_SCHED 90
 #define TIME_OUT_TO_NEXT_FRAME_MS 1
 
-				uint16_t _time_slot = 0;
-				memcpy(&_time_slot, buffer + OFFSET_TS_ID, 2);
-				_time_slot = _time_slot << 4;
+				// 10:bf:48:80:66:c5
 				
-				memcpy(host_voqs_all[FRAME_COUNT], &buffer[OFFSET_D_VOQ], TOTAL_VOQ_BYTES);
-	
-				//TODO: need to verify if all bits are correctly stored in host_voq_all
-			
-				FRAME_COUNT = FRAME_COUNT+1;
+				if( buffer[6] == 0x10 && buffer[7] == 0xbf &&
+					buffer[8] == 0x48 && buffer[9] == 0x80 &&
+					buffer[10] == 0x66 && buffer[11] == 0xc5 ) {
 
-                                //TODO: need to accumulate other packets on the same time slot 
-				//	(up to how many? => 90) before starting scheduling
+					printf("receiving packet...\n");
+/*
+					upstream_raw_packet packet;
+					memset(&packet, 0, sizeof(upstream_raw_packet));
 
-				if (FRAME_COUNT == NUM_OF_FRAME_TO_START_SCHED) {
-					//TODO: need to start scheduling
+					parse_up_packet(buffer, &packet);
+
+/*
+                                        uint16_t s_pfwi_id = 0;
+                                        memcpy(&s_pfwi_id, packet.s_pfwi_id, 2);
+                                        printf("s_pfwi_id: %d\n", s_pfwi_id);
+
+
+					uint8_t _pwia_id[2] = {0};
+					//memcpy(&_pwia_id, buffer + OFFSET_S_PFWI_ID, 2);
+					//_pwia_id = _pwia_id >> 4;
+
+					memcpy(&_pwia_id[1], buffer + OFFSET_S_PFWI_ID, 1);
+					memcpy(&_pwia_id[0], buffer + OFFSET_S_PFWI_ID+1, 1);
+					_pwia_id[1] = _pwia_id[1] & 15;
+
+					uint16_t tmp = 0;
+					memcpy(&tmp, _pwia_id, 2);
+
+					printf("--pwia_id: %d\n", tmp);					
+
+					memcpy(host_voqs_all[tmp-1], &buffer[OFFSET_D_VOQ], TOTAL_VOQ_BYTES);
+
+					//TODO: need to verify if all bits are correctly stored in host_voq_all
+
+					FRAME_COUNT = FRAME_COUNT+1;
+
+					//TODO: need to accumulate other packets on the same time slot 
+					//	(up to how many? => 90) before starting scheduling
+
+					if (FRAME_COUNT == NUM_OF_FRAME_TO_START_SCHED) {
+						//TODO: need to start scheduling
+					}
+*/
 				}
 			}
 		}
 	}
+}
+
+int main() {
+	receive_req(90);
+
+	return 0;
 }
