@@ -72,18 +72,17 @@ void receive_req(int _switch_size) {
 					buffer[10] == 0x66 && buffer[11] == 0xc5 ) {
 
 					printf("receiving packet...\n");
-/*
 					upstream_raw_packet packet;
 					memset(&packet, 0, sizeof(upstream_raw_packet));
 
 					parse_up_packet(buffer, &packet);
 
-/*
+
                                         uint16_t s_pfwi_id = 0;
                                         memcpy(&s_pfwi_id, packet.s_pfwi_id, 2);
                                         printf("s_pfwi_id: %d\n", s_pfwi_id);
 
-
+/*
 					uint8_t _pwia_id[2] = {0};
 					//memcpy(&_pwia_id, buffer + OFFSET_S_PFWI_ID, 2);
 					//_pwia_id = _pwia_id >> 4;
