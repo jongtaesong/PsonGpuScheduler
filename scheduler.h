@@ -129,7 +129,7 @@ typedef struct msgRequest_t
 	uint16_t ts_id         :12;
 	uint16_t back_pressure :4;
 	uint16_t s_pfwi_id     :12;
-	uint32_t voq_info [MAX_NUM_SWITCH_SIZE];  // SWITCH_SIZE must be multiple of 4
+	uint8_t voq_info [MAX_NUM_SWITCH_SIZE];
 }msgRequest_t;
 
 typedef struct msgSynch_t {
