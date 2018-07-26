@@ -25,8 +25,8 @@ uint16_t * ia_rr_pointer;
 uint16_t * oa_rr_pointer;
 
 
-uint32_t * device_voq_all;
-uint32_t * host_voq_all;
+uint8_t * device_voq_all;
+uint8_t * host_voq_all;
 uint32_t * VoQCount;
 
 uint16_t * device_granted_input;
@@ -36,19 +36,13 @@ uint16_t * host_granted_output;
 uint16_t * req_map;
 
 __shared__ int sh_switch_size;
-__shared__ int sh_block_size;
 __shared__ int sh_scale_factor;
-__shared__ int sh_num_bits_per_voq;
-__shared__ int sh_num_req_per_uint32;
 __shared__ int sh_num_rr_seq;
 
 
 
 int _switch_size;
-int _block_size;
 int _scale_factor;
-int _num_bits_per_voq;
-int _num_req_per_uint32;
 int _num_rr_seq;
 int _num_iterations = 1;
 int _num_cuda_blk = 4;
@@ -110,11 +104,8 @@ void copy_host_grant_reset_dev_grant()
 
 void reset_voq(int in_idx, int out_idx)
 {
-	int idx_h = out_idx/8;
-	int idx_l = out_idx%8;
-	uint32_t bit = 0xf0000000>>(4*idx_l);
 
-	host_voq_all[in_idx*_block_size+idx_h] = host_voq_all[in_idx*_block_size+idx_h]&(~bit);
+	host_voq_all[in_idx*_switch_size+out_idx] = 0;
 }
 
 void update_voq()
@@ -168,32 +159,18 @@ __global__ void print_req_global(uint16_t * req_map)
 
 
 
-__device__ void print_voq_device (int idx, uint32_t * voq )
+__device__ void print_voq_device (int idx, uint8_t * voq )
 {
 
-	for (int i=0; i<sh_block_size; i++)
+	for (int i=0; i<sh_switch_size; i++)
 	{
-		uint32_t mask = 0xf0000000;
-		int out_idx_h = i>>3;
-		for (int j=0; j<8; j++)
-		{
-			if (mask&voq[idx*sh_block_size+out_idx_h])
-			{
-				printf("(%d->%d):1 ", idx, out_idx_h*8+j);
-			}
-			else
-			{
-				printf("(%d->%d):0 ", idx, out_idx_h*8+j);
-
-			}
-			mask = mask>>sh_num_bits_per_voq; //NUM_BITS_PER_VOQ_INFO;
-		}
+		printf("(%d->%d):%d ", idx, i, voq[i]);
 	}
 	printf(" \n");
 
 }
 
-__global__ void print_voq_global(uint32_t * voq)
+__global__ void print_voq_global(uint8_t * voq)
 {
 	int in_idx = blockIdx.x*blockDim.x+threadIdx.x;;
     print_voq_device (in_idx, voq);
@@ -206,55 +183,23 @@ void print_req(uint16_t * req_map)
 	print_req_global<<<_num_cuda_blk,_num_cuda_thread>>>(req_map);
 }
 
-__device__ void device_send_request(int in_idx,  uint32_t * voq_map, int ts, uint16_t * req_map, uint16_t* granted_input, uint16_t * rr_ptr)
+__device__ void device_send_request(int in_idx,  uint8_t * voq_map, int ts, uint16_t * req_map, uint16_t* granted_input, uint16_t * rr_ptr)
 {
 	int rr_start = rr_ptr[in_idx*sh_num_rr_seq+ts%sh_num_rr_seq];
 
-	int rr_start_h = rr_start>>3;
-	int rr_start_l = rr_start%sh_num_req_per_uint32;
-
-	uint32_t mask = 0xf0000000>>(rr_start_l*sh_num_bits_per_voq);
-	if (voq_map[in_idx*sh_block_size+rr_start_h])
+	for (int i=0; i<sh_switch_size; i++)
 	{
-		for (int j=rr_start_l; j<sh_num_req_per_uint32; j++)
-		{
-			//printf("input:%d mask:0x%08x sh_num_req_per_uint32:%d rr:%d rr_h:%d rr_l:%d \n", in_idx, mask, sh_num_req_per_uint32, rr_start, rr_start_h, rr_start_l);
-
-			if ((mask&voq_map[in_idx*sh_block_size+rr_start_h])&&
-				(granted_input[in_idx*sh_switch_size+rr_start_h*sh_num_req_per_uint32+j]!=0xffff))
-			{
-				req_map[in_idx*sh_switch_size+rr_start_h*sh_num_req_per_uint32+j] = 1;
-				//printf("REQ#1 -- rr_ptr:%d, idx_l:%d send request from %d to %d \n", rr_start, rr_start_l, in_idx, rr_start_h*8+j);
-				return;
-			}
-			mask = mask>>sh_num_bits_per_voq;
-		}
-	}
-
-	for (int i=1; i<sh_block_size+1; i++)
-	{
-		int out_idx_h = ((rr_start_h+i)%sh_switch_size)>>3;
-		if (voq_map[in_idx*sh_block_size+out_idx_h] == 0)
+		int out_idx = (rr_start+i)%sh_switch_size;
+		if (voq_map[in_idx*sh_switch_size+out_idx] == 0)
 			continue;
-		mask = 0xf0000000;
-		for (int j=0; j<sh_num_req_per_uint32; j++)
-		{
-			//printf("input:%d mask:0x%08x  \n", in_idx, mask);
-			if (mask&voq_map[in_idx*sh_block_size+out_idx_h])
-			{
-				req_map[in_idx*sh_switch_size+out_idx_h*sh_num_req_per_uint32+j] = 1;
-				//printf("REQ#2 -- rr_ptr:%d, idx_l:%d send request from %d to %d \n", rr_start, rr_start_l, in_idx, out_idx_h*sh_num_req_per_uint32+j);
-				return;
-			}
-			mask = mask>>sh_num_bits_per_voq;
 
-		}
+		req_map[in_idx*sh_switch_size+out_idx] = 1;
+		return;
 	}
-	//printf("No request from %d, rr_start:%d \n", in_idx, rr_start);
 
 }
 
-__global__ void cuda_send_request(uint32_t * voq_map, int ts, uint16_t * granted_input, uint16_t * granted_output,uint16_t * req_map, uint16_t * rr_ptr)
+__global__ void cuda_send_request(uint8_t * voq_map, int ts, uint16_t * granted_input, uint16_t * granted_output,uint16_t * req_map, uint16_t * rr_ptr)
 {
 	int input_idx = blockIdx.x*blockDim.x+threadIdx.x;
 	//printf("Send Request for input:%04d \n", input_idx);
@@ -295,15 +240,15 @@ __global__ void cuda_cleanup_for_new_iter ()
 	;
 }
 
-void print_voq(uint32_t * voq)
+void print_voq(uint8_t * voq)
 {
 	for (int i=0; i<_switch_size; i++)
 	{
 		printf ("  VoQ for input %d: ", i);
 
-		for (int j=0; j<_block_size; j++)
+		for (int j=0; j<_switch_size; j++)
 		{
-			printf ("0x%08x ", voq[i*_block_size+j]);
+			printf ("0x%02x ", voq[i*_switch_size+j]);
 		}
 		printf ("\n");
 
@@ -387,7 +332,7 @@ void printDevProp(cudaDeviceProp devProp)
 
 int pefrom_scheduling (int ts)
 {
-	CUDA_CHECK_RETURN(cudaMemcpy(device_voq_all, host_voq_all, sizeof(uint32_t)*_switch_size*_block_size,cudaMemcpyHostToDevice));
+	CUDA_CHECK_RETURN(cudaMemcpy(device_voq_all, host_voq_all, sizeof(uint8_t)*_switch_size*_switch_size,cudaMemcpyHostToDevice));
 
 	for (int iter=0; iter<_num_iterations; iter++)
 	{
@@ -409,7 +354,7 @@ int pefrom_scheduling (int ts)
 void copyMsgVoQToDevice (msgRequest_t * req)
 {
 	int in_idx = req->s_pfwi_id-1;
-    CUDA_CHECK_RETURN(cudaMemcpy((void *)&req->voq_info, (void *)&device_voq_all[in_idx*_block_size], sizeof(uint32_t)*_block_size, cudaMemcpyHostToDevice));
+    CUDA_CHECK_RETURN(cudaMemcpy((void *)&req->voq_info, (void *)&device_voq_all[in_idx*_switch_size], sizeof(uint8_t)*_switch_size, cudaMemcpyHostToDevice));
 	return;
 }
 
@@ -427,14 +372,12 @@ void generate_packet(int load)
 			random_port = rand()%_switch_size;
 			if (VoQCount[i*_switch_size+random_port] == 0)
 			{
-				int idx_h = random_port/8;
-				int idx_l = random_port%8;
-				uint32_t bit = 0x10000000>>(idx_l*4);
-				if (host_voq_all[i*_block_size+idx_h]&bit)
+				int idx = random_port;
+				if (host_voq_all[i*_switch_size+idx])
 				{
-					printf("SW Error idx:%d idx_h:%d, idx_l:%d, count:%d, voq:0x%x \n",random_port, idx_h, idx_l, VoQCount[i*_switch_size+random_port], host_voq_all[i*_block_size+idx_h]);
+					printf("SW Error idx:%d, count:%d, voq:0x%x \n",random_port, VoQCount[i*_switch_size+random_port], host_voq_all[i*_switch_size+idx]);
 				}
-				host_voq_all[i*_block_size+idx_h] =  host_voq_all[i*_block_size+idx_h]|bit;
+				host_voq_all[i*_switch_size+idx] =  1;
 			}
 			if (VoQCount[i*_switch_size+random_port] < NUM_VOQ_BUFFER_SIZE)
 			{
@@ -445,40 +388,33 @@ void generate_packet(int load)
 	}
 }
 
-__global__ void init_shared_value(int _switch_size, int _block_size, int _num_rr_seq, int _num_req_per_uint32, int _num_bits_per_voq)
+__global__ void init_shared_value(int _switch_size, int _num_rr_seq)
 {
 	sh_switch_size = _switch_size;
-	sh_block_size = _block_size;
 	sh_num_rr_seq = _num_rr_seq;
-	sh_num_req_per_uint32 = _num_req_per_uint32;
-	sh_num_bits_per_voq = _num_bits_per_voq;
 	//printf("Init shared value sh_switch_size:%d, sh_block_size:%d, sh_num_rr_seq:%d, sh_num_req_per_uint32:%d \n", sh_switch_size, sh_block_size, sh_num_rr_seq, sh_num_req_per_uint32);
 }
 
 __global__ void print_shared_value()
 {
-	printf("shared value sh_switch_size:%d, sh_block_size:%d, sh_num_rr_seq:%d \n", sh_switch_size, sh_block_size, sh_num_rr_seq);
+	printf("shared value sh_switch_size:%d, sh_num_rr_seq:%d \n", sh_switch_size, sh_num_rr_seq);
 }
 
 void init_scheduler()
 {
 	CUDA_CHECK_RETURN(cudaDeviceReset());
 	_scale_factor = 2;
-	_num_bits_per_voq = 4;
 	_num_rr_seq = _switch_size*_scale_factor;
-	_num_req_per_uint32 = 32/_num_bits_per_voq;
-	_block_size = _switch_size/_num_req_per_uint32;
-	printf("Init Values scale_factor:%d, num_bits_per_voq:%d, _num_rr_seq:%d, _num_req_per_uint32:%d, _block_size:%d \n",
-			_scale_factor, _num_bits_per_voq, _num_rr_seq, _num_req_per_uint32, _block_size);
+	printf("Init Values scale_factor:%d, num_rr_seq:%d \n", _scale_factor, _num_rr_seq );
 
-	init_shared_value<<<_num_cuda_blk,_num_cuda_thread>>>(_switch_size, _block_size, _num_rr_seq, _num_req_per_uint32, _num_bits_per_voq);
-	CUDA_CHECK_RETURN(cudaMalloc((void **) &device_voq_all, sizeof(uint32_t)*_switch_size*_block_size));
-	CUDA_CHECK_RETURN(cudaMemset ((void *) device_voq_all, 0, sizeof(uint32_t)*_switch_size*_block_size));
+	init_shared_value<<<_num_cuda_blk,_num_cuda_thread>>>(_switch_size, _num_rr_seq);
+	CUDA_CHECK_RETURN(cudaMalloc((void **) &device_voq_all, sizeof(uint8_t)*_switch_size*_switch_size));
+	CUDA_CHECK_RETURN(cudaMemset ((void *) device_voq_all, 0, sizeof(uint8_t)*_switch_size*_switch_size));
 
 	if (host_voq_all)
 		free(host_voq_all);
-	host_voq_all = (uint32_t *) malloc (sizeof(uint32_t)*_switch_size*_block_size);
-	memset(host_voq_all,0x0, sizeof(uint32_t)*_switch_size*_block_size);
+	host_voq_all = (uint8_t *) malloc (sizeof(uint8_t)*_switch_size*_switch_size);
+	memset(host_voq_all,0x0, sizeof(uint32_t)*_switch_size*_switch_size);
 	CUDA_CHECK_RETURN(cudaMalloc ((void **) &device_granted_input, sizeof(uint16_t)*_switch_size));
 	CUDA_CHECK_RETURN(cudaMemset((void*) device_granted_input, 0xff, sizeof(uint16_t)*_switch_size));
 
