@@ -1,7 +1,10 @@
 #include "req_receiver.h"
 #include "packets.h"
+#include "scheduler.h"
 
 using namespace scheduler_packets;
+extern int pefrom_scheduling (int ts);
+extern void send_grant_frame(int ts);
 // test
 void receive_req(int _switch_size) {
         int _num_bits_per_voq = 8;
@@ -41,23 +44,24 @@ void receive_req(int _switch_size) {
         s = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
 
         if( s == -1 ) {
-                printf("socket creation error.\n");
-                close(s);
+        	printf("socket creation error.\n");
+            close(s);
         }
         else {
-                printf("socket is successfully created.\n");
+        	printf("socket is successfully created.\n");
 
-		int FRAME_COUNT = 0;
 
-                for(;;) {
-                        length = recvfrom(s, buffer, BUFF_SIZE, 0, NULL, NULL);
+        	int FRAME_COUNT = 0;
 
-                        if (length == -1) {
-                                //errorhandling .... 
-                                printf("error while handling socket connection.\n");
-                        }
-                        else {
-                                //TODO: need to filter hosts by MAC address
+			for(;;) {
+				length = recvfrom(s, buffer, BUFF_SIZE, 0, NULL, NULL);
+
+				if (length == -1) {
+					//errorhandling ....
+					printf("error while handling socket connection.\n");
+				}
+				else {
+					//TODO: need to filter hosts by MAC address
 
 
 #define TOTAL_VOQ_BYTES 180 
@@ -70,46 +74,71 @@ void receive_req(int _switch_size) {
 #define PWIA_ID_OFFSET 	16
 #define VOQ_OFFSET	18
 			
-				// TEST HOST SERVER / 10:bf:48:80:66:c5				
-				if( buffer[6] == 0x10 && buffer[7] == 0xbf &&
-					buffer[8] == 0x48 && buffer[9] == 0x80 &&
-					buffer[10] == 0x66 && buffer[11] == 0xc5 ) {
+					// TEST HOST SERVER / 10:bf:48:80:66:c5
+					if( buffer[6] == 0x10 && buffer[7] == 0xbf &&
+						buffer[8] == 0x48 && buffer[9] == 0x80 &&
+						buffer[10] == 0x66 && buffer[11] == 0xc5 ) {
 
-					printf("receiving packet...\n");
-					
-					int NUM_OF_VOQS = -1;
-					
-					// LENGTH == 94
-					if( buffer[LENGTH_OFFSET] == 0x00 && 
-					    buffer[LENGTH_OFFSET+1] == 0x5E ) {
-						printf("NUMBER OF VALID VOQ FIELD: 90\n");
-						NUM_OF_VOQS = 90;
-					}
-					// LENGTH == 364
-					else if( buffer[LENGTH_OFFSET] == 0x01 && 
-						 buffer[LENGTH_OFFSET+1] == 0x30) {
-						printf("NUMBER OF VALID VOQ FIELD: 360\n");
-						NUM_OF_VOQS = 360;
-					}
+						printf("receiving packet...\n");
 
-					// UNKNOWN PACKET HANDLING
-					if( NUM_OF_VOQS == -1 ) {
-						continue;
-					}
+						if (buffer[TS_OFFSET] > 0xf) // Request message
 
-					uint16_t pwia_id = 0;
-					memcpy(&pwia_id+1, buffer + PWIA_ID_OFFSET  , 1);
-					memcpy(&pwia_id  , buffer + PWIA_ID_OFFSET+1, 1);
+						{
+							// Copy the VoQ info to the host voq info
+							msgRequest_t  req_msg;
+							memcpy (&req_msg, &buffer[TS_OFFSET], 4+_switch_size);
+							memcpy (host_voqs_all[req_msg.s_pfwi_id],&req_msg.voq_info, _switch_size);
+						}
 
-					printf("pwia_id: %d\n", pwia_id);
-					memcpy(host_voqs_all[pwia_id], buffer + VOQ_OFFSET, NUM_OF_VOQS);
-					printf("-- all voq information is copied into memory space\n");
+						else // Synch message
+						{
+							msgSynch_t  synch_msg;
+							memcpy (&synch_msg, &buffer[TS_OFFSET], sizeof(msgSynch_t));
+							pefrom_scheduling ( synch_msg.ts_id+1); // Scheduling 1 TS ahead
+							send_grant_frame(synch_msg.ts_id+1);
 
-					FRAME_COUNT = FRAME_COUNT+1;
 
-					if( FRAME_COUNT == NUM_OF_FRAME_TO_START_SCHED ) {
-						//TODO: need to start scheduling
-					} 
+						}
+/*
+						int NUM_OF_VOQS = -1;
+
+						// LENGTH == 94
+						if( buffer[LENGTH_OFFSET] == 0x00 &&
+							buffer[LENGTH_OFFSET+1] == 0x5E ) {
+							printf("NUMBER OF VALID VOQ FIELD: 90\n");
+							NUM_OF_VOQS = 90;
+						}
+						// LENGTH == 364
+						else if( buffer[LENGTH_OFFSET] == 0x01 &&
+							 buffer[LENGTH_OFFSET+1] == 0x30) {
+							printf("NUMBER OF VALID VOQ FIELD: 360\n");
+							NUM_OF_VOQS = 360;
+						}
+
+						// UNKNOWN PACKET HANDLING
+						if( NUM_OF_VOQS == -1 ) {
+							continue;
+						}
+
+						uint16_t pwia_id = 0;
+						memcpy(&pwia_id+1, buffer + PWIA_ID_OFFSET  , 1);
+						memcpy(&pwia_id  , buffer + PWIA_ID_OFFSET+1, 1);
+
+						printf("pwia_id: %d\n", pwia_id);
+						memcpy(host_voqs_all[pwia_id], buffer + VOQ_OFFSET, NUM_OF_VOQS);
+						printf("-- all voq information is copied into memory space\n");
+
+						FRAME_COUNT = FRAME_COUNT+1;
+
+
+						if( FRAME_COUNT == NUM_OF_FRAME_TO_START_SCHED ) {
+							uint16_t time_slot;
+							memcpy(&time_slot+1, buffer + PWIA_ID_OFFSET-2, 1);
+							memcpy(&time_slot, buffer + PWIA_ID_OFFSET-1, 1);
+							time_slot = time_slot&0xfff;
+							pefrom_scheduling ( time_slot);
+						}
+*/
 				}
 			}
 		}
