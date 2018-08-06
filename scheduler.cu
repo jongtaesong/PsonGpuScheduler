@@ -29,10 +29,10 @@ uint8_t * device_voq_all;
 uint8_t * host_voq_all;
 uint32_t * VoQCount;
 
-uint16_t * device_granted_input;
-uint16_t * host_granted_input;
-uint16_t * device_granted_output;
-uint16_t * host_granted_output;
+uint32_t * device_granted_input;
+uint32_t * host_granted_input;
+uint32_t * device_granted_output;
+uint32_t * host_granted_output;
 uint16_t * req_map;
 
 __shared__ int sh_switch_size;
@@ -51,6 +51,7 @@ int _num_cuda_thread;
 
 
 extern int eth_socket_init (int    argc, char **argv);
+extern void receive_req(int sw_size);
 
 
 
@@ -183,7 +184,7 @@ void print_req(uint16_t * req_map)
 	print_req_global<<<_num_cuda_blk,_num_cuda_thread>>>(req_map);
 }
 
-__device__ void device_send_request(int in_idx,  uint8_t * voq_map, int ts, uint16_t * req_map, uint16_t* granted_input, uint16_t * rr_ptr)
+__device__ void device_send_request(int in_idx,  uint8_t * voq_map, int ts, uint16_t * req_map, uint32_t* granted_input, uint16_t * rr_ptr)
 {
 	int rr_start = rr_ptr[in_idx*sh_num_rr_seq+ts%sh_num_rr_seq];
 
@@ -199,7 +200,7 @@ __device__ void device_send_request(int in_idx,  uint8_t * voq_map, int ts, uint
 
 }
 
-__global__ void cuda_send_request(uint8_t * voq_map, int ts, uint16_t * granted_input, uint16_t * granted_output,uint16_t * req_map, uint16_t * rr_ptr)
+__global__ void cuda_send_request(uint8_t * voq_map, int ts, uint32_t * granted_input, uint32_t * granted_output,uint16_t * req_map, uint16_t * rr_ptr)
 {
 	int input_idx = blockIdx.x*blockDim.x+threadIdx.x;
 	//printf("Send Request for input:%04d \n", input_idx);
@@ -212,7 +213,7 @@ __global__ void cuda_send_request(uint8_t * voq_map, int ts, uint16_t * granted_
     device_send_request(input_idx, voq_map, ts,req_map, granted_input, rr_ptr);
 }
 
-__device__ void device_send_grant(int out_idx, int ts, uint16_t * req_map, uint16_t * granted_input, uint16_t * granted_output, uint16_t * rr_ptr)
+__device__ void device_send_grant(int out_idx, int ts, uint16_t * req_map, uint32_t * granted_input, uint32_t * granted_output, uint16_t * rr_ptr)
 {
 	int rr_start = rr_ptr[out_idx*sh_num_rr_seq+ts%sh_num_rr_seq];
 
@@ -229,7 +230,7 @@ __device__ void device_send_grant(int out_idx, int ts, uint16_t * req_map, uint1
 		return;
 	}
 }
-__global__ void cuda_send_grant (int ts, uint16_t * req_map, uint16_t * granted_input, uint16_t * granted_output, uint16_t * rr_ptr)
+__global__ void cuda_send_grant (int ts, uint16_t * req_map, uint32_t * granted_input, uint32_t * granted_output, uint16_t * rr_ptr)
 {
 	int output_idx = blockIdx.x*blockDim.x+threadIdx.x;
 	device_send_grant(output_idx, ts, req_map, granted_input, granted_output, rr_ptr);
@@ -423,14 +424,14 @@ void init_scheduler()
 
 	if (host_granted_input)
 		free(host_granted_input);
-	host_granted_input = (uint16_t *) malloc (sizeof(uint16_t)*_switch_size);
-	memset(host_granted_input,0xff, sizeof(uint16_t)*_switch_size);
+	host_granted_input = (uint32_t *) malloc (sizeof(uint32_t)*_switch_size);
+	memset(host_granted_input,0xff, sizeof(uint32_t)*_switch_size);
 
 
 	if (host_granted_output)
 		free(host_granted_output);
-	host_granted_output = (uint16_t *) malloc (sizeof(uint16_t)*_switch_size);
-	memset(host_granted_output,0xff, sizeof(uint16_t)*_switch_size);
+	host_granted_output = (uint32_t *) malloc (sizeof(uint32_t)*_switch_size);
+	memset(host_granted_output,0xff, sizeof(uint32_t)*_switch_size);
 
 
 	CUDA_CHECK_RETURN(cudaMalloc ((void **) &req_map, sizeof(uint16_t)*_switch_size*_switch_size));
@@ -446,10 +447,17 @@ void init_scheduler()
 
 }
 
-
-
-int main(void)
+void * start_receive_req_thread(void * arg)
 {
+	int * sw_size = (int *) (arg);
+	receive_req(*sw_size);
+	return 0;
+
+}
+
+int main(int argc, char * argv[])
+{
+#ifdef SIM
 	FILE * SimOutFile;
 	FILE * SimOutFile2;
     int devCount = 0;
@@ -602,6 +610,74 @@ int main(void)
 	fclose(SimOutFile);
 	printf("close %s %d\n", fname, SimOutFile);
 	return 0;
+#else
+	if (argc < 3)
+	{
+		std::cout<<" argc " << argc<< "-- exit " <<std::endl;
+		std::cout<<"More Arguments required - switch_size, iteration" <<argc<<std::endl;
+		exit(1);
+	}
+
+
+	_switch_size = atoi(argv[1]);
+	_num_iterations = atoi(argv[2]);
+
+    int devCount = 0;
+    cudaGetDeviceCount(&devCount);
+    printf("CUDA Device Query...\n");
+    printf("There are %d CUDA devices.\n", devCount);
+
+    if (devCount == 0)
+	{
+		std::cout<<"devCount : " << devCount << "  --> No GPU installed " <<std::endl;
+		exit(1);
+	}
+    //cudaSetDevice(0);
+
+    // Iterate through devices
+
+    for (int i = 0; i < devCount; ++i)
+    {
+        // Get device properties
+        printf("\nCUDA  #%d \n", i);
+        cudaDeviceProp devProp;
+        cudaGetDeviceProperties(&devProp, i);
+        printDevProp(devProp);
+    }
+
+    cudaSetDevice(1);
+
+	_num_cuda_thread = _switch_size/_num_cuda_blk;
+	init_scheduler();
+
+	pthread_t       SynchProc_threadID, ReqProc_threadID;
+
+
+	// create ReqProc_threadID
+	if (pthread_create(&ReqProc_threadID, NULL, start_receive_req_thread, & _switch_size) != 0)
+	{
+		printf("ReqProc Failed [%s, %d, %s]\n", __FILE__, __LINE__, __FUNCTION__);
+	} else
+	{
+		printf("ReqProc is started [%s, %d, %s]\n", __FILE__, __LINE__, __FUNCTION__);
+	}
+
+/*
+	// SynchProc_thread
+	if (pthread_create(&SynchProc_threadID, NULL, start_receive_synch_thread, & _switch_size) != 0)
+	{
+		printf("SynchProc Failed [%s, %d, %s]\n", __FILE__, __LINE__, __FUNCTION__);
+	} else
+	{
+		printf("SynchProc is started [%s, %d, %s]\n", __FILE__, __LINE__, __FUNCTION__);
+	}
+*/
+
+
+	return 0;
+
+#endif
+
 }
 
 
