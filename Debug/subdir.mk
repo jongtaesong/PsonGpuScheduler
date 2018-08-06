@@ -8,19 +8,31 @@ CU_SRCS += \
 
 CPP_SRCS += \
 ../eth_socket_example.cpp \
-../schedThread.cpp 
+../packets.cpp \
+../req_receiver.cpp \
+../schedThread.cpp \
+../send_grant.cpp 
+
+O_SRCS += \
+../packets.o 
 
 OBJS += \
 ./eth_socket_example.o \
+./packets.o \
+./req_receiver.o \
 ./schedThread.o \
-./scheduler.o 
+./scheduler.o \
+./send_grant.o 
 
 CU_DEPS += \
 ./scheduler.d 
 
 CPP_DEPS += \
 ./eth_socket_example.d \
-./schedThread.d 
+./packets.d \
+./req_receiver.d \
+./schedThread.d \
+./send_grant.d 
 
 
 # Each subdirectory must supply rules for building sources it contributes
