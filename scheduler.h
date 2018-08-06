@@ -41,7 +41,7 @@
 #include "cuda_profiler_api.h"
 #include "schedulerConst.h"
 
-
+// #define SIM
 
 struct structIpAddress_t {
     unsigned char addr[4];              //## attribute addr
