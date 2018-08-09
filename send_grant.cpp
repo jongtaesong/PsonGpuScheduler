@@ -48,9 +48,10 @@ int sock = 0;
 grant_raw_packet grant_frame;
 struct sockaddr_ll dest;
 
-#define GRANT_BUFFER_SIZE 400
 
-void send_grant_frame(int ts_id) {
+#define GRANT_BUFFER_SIZE 2462
+
+void send_grant_frame(int ts_id, int sw_size, uint32_t * granted_output) {
 
 
 	struct sockaddr_ll dest;
@@ -120,7 +121,7 @@ void send_grant_frame(int ts_id) {
 
 	grant_frame.ts_id = htons(ts_id);
 
-	//memcpy(buffer, grant_frame, sizeof(grant_raw_packet));
+	memcpy(&grant_frame.granted_port[0], granted_output, sizeof(uint32_t)*sw_size);
 	int length = sendto(sock, &grant_frame, sizeof(grant_raw_packet), 0, (struct sockaddr*)&dest, sizeof(dest));
 	if( length == -1) {
 		printf("Error: %s (%d)\n", strerror(errno), errno);

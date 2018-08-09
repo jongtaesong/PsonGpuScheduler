@@ -4,7 +4,11 @@
 
 using namespace scheduler_packets;
 extern int pefrom_scheduling (int ts);
-extern void send_grant_frame(int ts);
+extern void send_grant_frame(int ts, int sw_size, uint32_t * granted_ouput);
+extern uint32_t * host_granted_output;
+extern int _switch_size;
+
+
 // test
 void receive_req(int _switch_size) {
         int _num_bits_per_voq = 8;
@@ -80,7 +84,15 @@ void receive_req(int _switch_size) {
 						buffer[10] == 0x66 && buffer[11] == 0xc5 ) {
 
 						printf("receiving packet...\n");
-
+						//////////////////////////////////////////////
+						//
+						//   |ver/type|        TS_ID       |
+						//   |  4bit  |        12 bit      |
+						//   [      8bit    ] --> buffer[TS_OFFSET]
+						//    - version/type == 0 --> synch
+						//    - version/type == 1 or 2 --> 90x90 or 360x360
+						//
+						/////////////////////////////////////////////////
 						if (buffer[TS_OFFSET] > 0xf) // Request message
 
 						{
@@ -95,9 +107,7 @@ void receive_req(int _switch_size) {
 							msgSynch_t  synch_msg;
 							memcpy (&synch_msg, &buffer[TS_OFFSET], sizeof(msgSynch_t));
 							pefrom_scheduling ( synch_msg.ts_id+1); // Scheduling 1 TS ahead
-							send_grant_frame(synch_msg.ts_id+1);
-
-
+							send_grant_frame(synch_msg.ts_id+1, _switch_size, host_granted_output);
 						}
 /*
 						int NUM_OF_VOQS = -1;

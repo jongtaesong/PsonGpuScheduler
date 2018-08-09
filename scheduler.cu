@@ -6,12 +6,7 @@
  */
 
 
-/*
- * scheduler.cu
- *
- *  Created on: Jul 5, 2017
- *      Author: pfc
- */
+
 
 
 #include <stdint.h>
@@ -78,7 +73,6 @@ void verify_grant()
 			if (( i1== i2) & (i1 != -1 || i2 != -1))
 			{
 				printf("SW ERROR Duplicated granted_input[%d]:%d granted_input[%d]:%d \n", i, i1, (i+j)%_switch_size, i2);
-
 			}
 
 			o1 = host_granted_output[i];
@@ -87,36 +81,29 @@ void verify_grant()
 			{
 				printf("SW ERROR Duplicated granted_output[%d]:%d granted_output[%d]:%d \n", i, o1, (i+j)%_switch_size, o2);
 			}
-
-
 		}
 }
 
 
-
-
 void copy_host_grant_reset_dev_grant()
 {
-	CUDA_CHECK_RETURN(cudaMemcpy(host_granted_input, device_granted_input, sizeof(uint16_t)*_switch_size, cudaMemcpyDeviceToHost));
-	CUDA_CHECK_RETURN(cudaMemcpy(host_granted_output, device_granted_output, sizeof(uint16_t)*_switch_size, cudaMemcpyDeviceToHost));
-	cudaMemset (device_granted_input, 0xff, sizeof(uint16_t)*_switch_size);
-	cudaMemset (device_granted_output, 0xff, sizeof(uint16_t)*_switch_size);
+	CUDA_CHECK_RETURN(cudaMemcpy(host_granted_input, device_granted_input, sizeof(uint32_t)*_switch_size, cudaMemcpyDeviceToHost));
+	CUDA_CHECK_RETURN(cudaMemcpy(host_granted_output, device_granted_output, sizeof(uint32_t)*_switch_size, cudaMemcpyDeviceToHost));
+	cudaMemset (device_granted_input, 0x0, sizeof(uint16_t)*_switch_size);
+	cudaMemset (device_granted_output, 0x0, sizeof(uint16_t)*_switch_size);
 }
 
 void reset_voq(int in_idx, int out_idx)
 {
-
 	host_voq_all[in_idx*_switch_size+out_idx] = 0;
 }
 
 void update_voq()
 {
 
-	//CUDA_CHECK_RETURN(cudaMemcpy(device_grant_map, host_grant_map, sizeof(uint16_t),cudaMemcpyHostToDevice));
-
 	for (int i=0; i<_switch_size; i++)
 	{
-		if (host_granted_output[i] == 0xffff)
+		if (host_granted_output[i] == 0)
 			continue;
 
 		if (VoQCount[i*_switch_size+host_granted_output[i]]==0)
@@ -130,13 +117,9 @@ void update_voq()
 	}
 }
 
-
-
-
-
 void reset_req()
 {
-	cudaMemset (req_map, 0xff, sizeof(uint16_t)*_switch_size*_switch_size);
+	cudaMemset (req_map, 0, sizeof(uint16_t)*_switch_size*_switch_size);
 }
 
 __device__ void print_req_device (int idx, uint16_t * req_map )
@@ -145,7 +128,7 @@ __device__ void print_req_device (int idx, uint16_t * req_map )
 
 	for (int i=0; i<sh_switch_size; i++)
 	{
-		if (req_map[i*sh_switch_size+idx] == 0xffff)
+		if (req_map[i*sh_switch_size+idx] == 0)
 			continue;
 		printf ("Req(%d->%d):%d ",i, idx, req_map[i*sh_switch_size+idx]);
 	}
@@ -158,17 +141,13 @@ __global__ void print_req_global(uint16_t * req_map)
     print_req_device (out_idx, req_map);
 }
 
-
-
 __device__ void print_voq_device (int idx, uint8_t * voq )
 {
-
 	for (int i=0; i<sh_switch_size; i++)
 	{
 		printf("(%d->%d):%d ", idx, i, voq[i]);
 	}
 	printf(" \n");
-
 }
 
 __global__ void print_voq_global(uint8_t * voq)
@@ -176,8 +155,6 @@ __global__ void print_voq_global(uint8_t * voq)
 	int in_idx = blockIdx.x*blockDim.x+threadIdx.x;;
     print_voq_device (in_idx, voq);
 }
-
-
 
 void print_req(uint16_t * req_map)
 {
@@ -197,7 +174,6 @@ __device__ void device_send_request(int in_idx,  uint8_t * voq_map, int ts, uint
 		req_map[in_idx*sh_switch_size+out_idx] = 1;
 		return;
 	}
-
 }
 
 __global__ void cuda_send_request(uint8_t * voq_map, int ts, uint32_t * granted_input, uint32_t * granted_output,uint16_t * req_map, uint16_t * rr_ptr)
@@ -205,7 +181,7 @@ __global__ void cuda_send_request(uint8_t * voq_map, int ts, uint32_t * granted_
 	int input_idx = blockIdx.x*blockDim.x+threadIdx.x;
 	//printf("Send Request for input:%04d \n", input_idx);
 
-	if (granted_output[input_idx] != 0xffff)
+	if (granted_output[input_idx] != 0)
 	{
 		printf("already granted for input:%d, ouput:%d \n", input_idx, granted_output[input_idx]);
 		return;
@@ -217,11 +193,10 @@ __device__ void device_send_grant(int out_idx, int ts, uint16_t * req_map, uint3
 {
 	int rr_start = rr_ptr[out_idx*sh_num_rr_seq+ts%sh_num_rr_seq];
 
-
 	for (int i=0; i<sh_switch_size; i++)
 	{
 		int in_idx = (rr_start+i)%sh_switch_size;
-		if (req_map[in_idx*sh_switch_size+out_idx] == 0xffff)
+		if (req_map[in_idx*sh_switch_size+out_idx] == 0)
 			continue;
 
 		granted_output [in_idx] = out_idx;
@@ -252,12 +227,8 @@ void print_voq(uint8_t * voq)
 			printf ("0x%02x ", voq[i*_switch_size+j]);
 		}
 		printf ("\n");
-
 	}
 }
-
-
-
 
 __device__ void init_rr_pointer_device (int idx, uint16_t * i_rr_ptr, uint16_t * o_rr_ptr )
 {
@@ -268,25 +239,6 @@ __device__ void init_rr_pointer_device (int idx, uint16_t * i_rr_ptr, uint16_t *
 		o_rr_ptr[off_set+i] = (sh_switch_size+i-idx)%sh_switch_size;
 		//printf ("idx:%d i:%d, ,off_set:%d, i_rr:%d, o_rr:%d \n",idx, i, off_set, i_rr_ptr[idx*sh_switch_size+i], o_rr_ptr[idx*sh_switch_size+i]);
 	}
-	/*printf ("idx:%d off_set:%d sh_num_rr_seq:%d sh_switch_size:%d - i_rr: %d %d %d %d %d %d %d %d ..o_rr: %d %d %d %d %d %d %d %d ..\n",
-														idx, off_set, sh_switch_size, sh_num_rr_seq,
-														i_rr_ptr[off_set+0],
-														i_rr_ptr[off_set+1],
-														i_rr_ptr[off_set+2],
-														i_rr_ptr[off_set+3],
-														i_rr_ptr[off_set+4],
-														i_rr_ptr[off_set+5],
-														i_rr_ptr[off_set+6],
-														i_rr_ptr[off_set+7],
-
-														o_rr_ptr[off_set+0],
-														o_rr_ptr[off_set+1],
-														o_rr_ptr[off_set+2],
-														o_rr_ptr[off_set+3],
-														o_rr_ptr[off_set+4],
-														o_rr_ptr[off_set+5],
-														o_rr_ptr[off_set+6],
-														o_rr_ptr[off_set+7]);*/
 }
 
 __global__ void init_rr_pointer(uint16_t * i_rr_ptr, uint16_t * o_rr_ptr )
@@ -297,7 +249,6 @@ __global__ void init_rr_pointer(uint16_t * i_rr_ptr, uint16_t * o_rr_ptr )
 
 __device__ void print_rr_pointer_device (int idx, uint16_t * i_rr_ptr)
 {
-
 	//printf ("idx:%d - %d %d %d %d %d %d ...\n", idx, i_rr_ptr->pointer[idx][0], i_rr_ptr->pointer[idx][1], i_rr_ptr->pointer[idx][2], i_rr_ptr->pointer[idx][3], i_rr_ptr->pointer[idx][4], i_rr_ptr->pointer[idx][5]);
 }
 
@@ -415,23 +366,22 @@ void init_scheduler()
 	if (host_voq_all)
 		free(host_voq_all);
 	host_voq_all = (uint8_t *) malloc (sizeof(uint8_t)*_switch_size*_switch_size);
-	memset(host_voq_all,0x0, sizeof(uint32_t)*_switch_size*_switch_size);
+	memset(host_voq_all,0x0, sizeof(uint8_t)*_switch_size*_switch_size);
 	CUDA_CHECK_RETURN(cudaMalloc ((void **) &device_granted_input, sizeof(uint16_t)*_switch_size));
-	CUDA_CHECK_RETURN(cudaMemset((void*) device_granted_input, 0xff, sizeof(uint16_t)*_switch_size));
+	CUDA_CHECK_RETURN(cudaMemset((void*) device_granted_input, 0, sizeof(uint16_t)*_switch_size));
 
 	CUDA_CHECK_RETURN(cudaMalloc ((void **) &device_granted_output, sizeof(uint16_t)*_switch_size));
-	CUDA_CHECK_RETURN(cudaMemset((void*) device_granted_output, 0xff, sizeof(uint16_t)*_switch_size));
+	CUDA_CHECK_RETURN(cudaMemset((void*) device_granted_output, 0, sizeof(uint16_t)*_switch_size));
 
 	if (host_granted_input)
 		free(host_granted_input);
 	host_granted_input = (uint32_t *) malloc (sizeof(uint32_t)*_switch_size);
-	memset(host_granted_input,0xff, sizeof(uint32_t)*_switch_size);
-
+	memset(host_granted_input,0, sizeof(uint32_t)*_switch_size);
 
 	if (host_granted_output)
 		free(host_granted_output);
 	host_granted_output = (uint32_t *) malloc (sizeof(uint32_t)*_switch_size);
-	memset(host_granted_output,0xff, sizeof(uint32_t)*_switch_size);
+	memset(host_granted_output,0, sizeof(uint32_t)*_switch_size);
 
 
 	CUDA_CHECK_RETURN(cudaMalloc ((void **) &req_map, sizeof(uint16_t)*_switch_size*_switch_size));
@@ -457,170 +407,7 @@ void * start_receive_req_thread(void * arg)
 
 int main(int argc, char * argv[])
 {
-#ifdef SIM
-	FILE * SimOutFile;
-	FILE * SimOutFile2;
-    int devCount = 0;
-    cudaGetDeviceCount(&devCount);
-    printf("CUDA Device Query...\n");
-    printf("There are %d CUDA devices.\n", devCount);
 
-    if (devCount == 0)
-	{
-		std::cout<<"devCount : " << devCount << "  --> No GPU installed " <<std::endl;
-		exit(1);
-	}
-    //cudaSetDevice(0);
-
-    // Iterate through devices
-
-    for (int i = 0; i < devCount; ++i)
-    {
-        // Get device properties
-        printf("\nCUDA  #%d \n", i);
-        cudaDeviceProp devProp;
-        cudaGetDeviceProperties(&devProp, i);
-        printDevProp(devProp);
-    }
-
-    cudaSetDevice(1);
-	/*if (argc < 4)
-	{
-		std::cout<<" argc " << argc<< "-- exit " <<std::endl;
-		std::cout<<"More Arguments required - duration load iterations" <<argc<<std::endl;
-		exit(1);
-	}
-
-
-	int _duration = atoi(argv[1]);
-	int _load = atoi(argv[2]);
-	int _iteration = atoi(argv[3]);
-	*/
-    int _duration = 1000;
-    int _load = 90;
-    int _ts_th = -1;
-	int _q_th = -1;
-	int _aware = 1;
-
-	uint64_t sum_delay, measure_count, max_delay, min_delay, measure_start;
-
-	char fname[60];
-	char fname2[60];
-
-	sprintf(fname,"sim_result_scheduling_time_block_%d.txt", _num_cuda_blk);
-	SimOutFile = fopen(fname,"w");
-	printf("open fname %s\n", fname);
-
-	for (_load = 50; _load<51; _load ++ )
-	for (_switch_size = 8; _switch_size<2000; _switch_size ++ )
-
-	{
-		/*
-			receiver_req function takes ethernet stream
-		*/
-		//receive_req(_switch_size);
-		
-
-		if (_load%10 != 0 || _switch_size%_num_cuda_blk != 0 || _switch_size%8 != 0)
-		{
-			//printf ("continue switch_size %d, duration %d,  load %d, iteration %d,  _ts_th %d, _q_th %d, _aware %d \n",
-			//					_switch_size, _duration, _load, _num_iterations,  _ts_th, _q_th, _aware);
-
-			continue;
-		}
-
-		sprintf(fname2,"sim_result_load_%d_switch_%d_block_%d.txt", _load, _switch_size, _num_cuda_blk);
-		SimOutFile2 = fopen(fname2,"w");
-		printf("open fname2 %s\n", fname2);
-
-		sum_delay=0;
-		measure_count = 0;
-		measure_start = 0;
-		max_delay = 0;
-		min_delay = 1000000;
-		_num_cuda_thread = _switch_size/_num_cuda_blk;
-		init_scheduler();
-
-		for (int i=0; i<_duration; i++)
-		{
-			// process request
-			if (i==0)
-				measure_start = 0;
-
-			int _time_slot = i;
-			//printf("timeslot %d \n", _time_slot);
-			//print_rr_pointer <<<1,_switch_size>>>();
-
-
-			// reset_req(req_map);
-
-
-
-			generate_packet(_load);
-
-			//print_voq(host_voq_all);
-			//print_rr_pointer<<<1,_switch_size>>>(ia_rr_pointer);
-
-
-			//printf("After cudaMalloc host_voq ---\n");
-			//print_voq(host_voq_all );
-			//printf("After cudaMalloc devicet_voq ---\n");
-
-
-
-			//print_voq_global <<<1,_switch_size>>>(device_voq_all);
-			//cudaDeviceSynchronize();
-
-			clock_t t1 = clock();
-
-			pefrom_scheduling ( _time_slot);
-
-			clock_t t2 = clock();
-
-			clock_t diff = t2-t1;
-			int schedule_time_usec = diff*1000000/CLOCKS_PER_SEC;
-			//printf("Delta t2-t1: %d \n \n", schedule_time_usec);
-
-			if (i==100)
-				measure_start = 1;
-			if (measure_start)
-			{
-				if (diff > max_delay)
-					max_delay = diff;
-				if (diff < min_delay)
-					min_delay = diff;
-
-				sum_delay+= diff;
-				measure_count++;
-				fprintf(SimOutFile2, "delay %d\n", diff);
-
-			}
-
-			update_voq();  // THis operation is excluded for processing time because this happens in linecards
-			//cudaDeviceSynchronize();
-
-		}
-		fprintf(SimOutFile, "switch_size %d load %d iteration %d max_delay %lu min_delay %lu sum_delay %lu measure_count %lu\n",
-				_switch_size,_load, _num_iterations, max_delay, min_delay, sum_delay, measure_count);
-		printf("switch_size %d load %d iteration %d max_delay %lu min_delay %lu sum_delay %lu measure_count %lu\n",
-				_switch_size,_load, _num_iterations, max_delay, min_delay, sum_delay, measure_count);
-		fclose(SimOutFile2);
-
-	}
-	fclose(SimOutFile);
-	printf("close %s %d\n", fname, SimOutFile);
-	return 0;
-#else
-	if (argc < 3)
-	{
-		std::cout<<" argc " << argc<< "-- exit " <<std::endl;
-		std::cout<<"More Arguments required - switch_size, iteration" <<argc<<std::endl;
-		exit(1);
-	}
-
-
-	_switch_size = atoi(argv[1]);
-	_num_iterations = atoi(argv[2]);
 
     int devCount = 0;
     cudaGetDeviceCount(&devCount);
@@ -648,6 +435,110 @@ int main(int argc, char * argv[])
     cudaSetDevice(1);
 
 	_num_cuda_thread = _switch_size/_num_cuda_blk;
+
+#ifdef SIM
+	FILE * SimOutFile;
+	FILE * SimOutFile2;
+
+    int _duration = 1000;
+    int _load = 90;
+    int _ts_th = -1;
+	int _q_th = -1;
+	int _aware = 1;
+
+	uint64_t sum_delay, measure_count, max_delay, min_delay, measure_start;
+
+	char fname[60];
+	char fname2[60];
+
+	sprintf(fname,"sim_result_scheduling_time_block_%d.txt", _num_cuda_blk);
+	SimOutFile = fopen(fname,"w");
+	printf("open fname %s\n", fname);
+
+	for (_load = 50; _load<51; _load ++ )
+	for (_switch_size = 8; _switch_size<2000; _switch_size ++ )
+
+	{
+
+		if (_load%10 != 0 || _switch_size%_num_cuda_blk != 0 || _switch_size%8 != 0)
+		{
+			continue;
+		}
+
+		sprintf(fname2,"sim_result_load_%d_switch_%d_block_%d.txt", _load, _switch_size, _num_cuda_blk);
+		SimOutFile2 = fopen(fname2,"w");
+		printf("open fname2 %s\n", fname2);
+
+		sum_delay=0;
+		measure_count = 0;
+		measure_start = 0;
+		max_delay = 0;
+		min_delay = 1000000;
+		_num_cuda_thread = _switch_size/_num_cuda_blk;
+		init_scheduler();
+
+		for (int i=0; i<_duration; i++)
+		{
+			// process request
+			if (i==0)
+				measure_start = 0;
+
+			int _time_slot = i;
+
+			generate_packet(_load);
+
+			clock_t t1 = clock();
+
+			pefrom_scheduling ( _time_slot);
+
+			clock_t t2 = clock();
+
+			clock_t diff = t2-t1;
+			int schedule_time_usec = diff*1000000/CLOCKS_PER_SEC;
+			//printf("Delta t2-t1: %d \n \n", schedule_time_usec);
+
+			if (i==100)
+				measure_start = 1;
+			if (measure_start)
+			{
+				if (diff > max_delay)
+					max_delay = diff;
+				if (diff < min_delay)
+					min_delay = diff;
+
+				sum_delay+= diff;
+				measure_count++;
+				fprintf(SimOutFile2, "delay %d\n", diff);
+
+			}
+
+			update_voq();  // This operation is excluded for processing time because this happens in linecards
+			//cudaDeviceSynchronize();
+
+		}
+		fprintf(SimOutFile, "switch_size %d load %d iteration %d max_delay %lu min_delay %lu sum_delay %lu measure_count %lu\n",
+				_switch_size,_load, _num_iterations, max_delay, min_delay, sum_delay, measure_count);
+		printf("switch_size %d load %d iteration %d max_delay %lu min_delay %lu sum_delay %lu measure_count %lu\n",
+				_switch_size,_load, _num_iterations, max_delay, min_delay, sum_delay, measure_count);
+		fclose(SimOutFile2);
+
+	}
+	fclose(SimOutFile);
+	printf("close %s %d\n", fname, SimOutFile);
+	return 0;
+#else
+	if (argc < 3)
+	{
+		std::cout<<" argc " << argc<< "-- exit " <<std::endl;
+		std::cout<<"More Arguments required - switch_size, iteration" <<argc<<std::endl;
+		exit(1);
+	}
+
+
+	_switch_size = atoi(argv[1]);
+	_num_iterations = atoi(argv[2]);
+
+
 	init_scheduler();
 
 	pthread_t       SynchProc_threadID, ReqProc_threadID;
